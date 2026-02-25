@@ -1,5 +1,4 @@
 import subprocess
-import os
 import sys
 
 def run(cmd):
@@ -24,34 +23,43 @@ def confirm(msg):
 
 disk = get_largest_disk()
 disk_path = f"/dev/{disk}"
-
 print(f"Detected disk: {disk_path}")
 
-if not confirm("ALL DATA on this disk will be erased. Continue?"):
+partitions = subprocess.check_output(f"lsblk -n -o NAME {disk_path}", shell=True).decode().splitlines()[1:]
+if partitions:
+    print(f"Partitions detected on {disk_path}: {', '.join(partitions)}")
+    if confirm("Do you want to erase all existing partitions?"):
+        run(f"sgdisk -Z {disk_path}")
+    else:
+        print("Cannot continue with existing partitions. Aborting.")
+        sys.exit(0)
+
+if not confirm(f"ALL DATA on {disk_path} will be erased. Continue?"):
     print("Cancelled.")
     sys.exit(0)
 
-run(f"cfdisk {disk_path}")
+run(f"sgdisk -n1:0:+1G -t1:ef00 {disk_path}")
+run(f"sgdisk -n2:0:+8G -t2:8200 {disk_path}")
+run(f"sgdisk -n3:0:0 -t3:8300 {disk_path}")
 
 p1 = f"{disk_path}1" if "nvme" not in disk else f"{disk_path}p1"
 p2 = f"{disk_path}2" if "nvme" not in disk else f"{disk_path}p2"
 p3 = f"{disk_path}3" if "nvme" not in disk else f"{disk_path}p3"
 
-run(f"mkfs.ext4 {p3}")
-run(f"mkfs.fat -F 32 {p1}")
+run(f"mkfs.fat -F32 {p1}")
 run(f"mkswap {p2}")
+run(f"swapon {p2}")
+run(f"mkfs.ext4 {p3}")
 
 run(f"mount {p3} /mnt")
 run("mkdir -p /mnt/boot/efi")
 run(f"mount {p1} /mnt/boot/efi")
-run(f"swapon {p2}")
 
 if not confirm("Install base system with pacstrap?"):
     run("poweroff")
     sys.exit(0)
 
 run("pacstrap /mnt linux linux-firmware sof-firmware base-devel grub efibootmgr vim nano networkmanager")
-
 run("genfstab -U /mnt >> /mnt/etc/fstab")
 
 hostname = input("Enter hostname: ")
@@ -70,16 +78,25 @@ print("Set user password:")
 chroot(f"passwd {username}")
 
 chroot("sed -i 's/^# %wheel ALL=(ALL:ALL) ALL/%wheel ALL=(ALL:ALL) ALL/' /etc/sudoers")
-
 chroot("systemctl enable NetworkManager")
 
 run(f"arch-chroot /mnt grub-install {disk_path}")
 run("arch-chroot /mnt grub-mkconfig -o /boot/grub/grub.cfg")
 
-run("umount -a")
+if confirm("Do you want to install KDE Plasma?"):
+    chroot("pacman -S --noconfirm xorg-server xorg-apps xorg-xinit xorg-xrandr")
+    chroot("pacman -S --noconfirm xf86-input-libinput")
+    gpu = input("Select GPU: 1 for NVIDIA, 2 for AMD/Intel: ")
+    if gpu == "1":
+        chroot("pacman -S --noconfirm nvidia nvidia-utils nvidia-settings")
+    elif gpu == "2":
+        chroot("pacman -S --noconfirm mesa")
+    chroot("pacman -S --noconfirm plasma-meta")
+    chroot("pacman -S --noconfirm konsole dolphin ark kate plasma-nm")
+    chroot("pacman -S --noconfirm sddm")
+    chroot("systemctl enable sddm")
 
-print("Installation finished.")
+print("\nInstallation finished.")
 resp = input("Reboot now? (y/n): ")
-
 if resp.lower() == "y":
     run("reboot")
