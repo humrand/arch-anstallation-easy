@@ -5,3 +5,5 @@ so, i was thinking and i decided to create a python script that makes arch insta
 
 
 Why? because i was bored and decided to do this, but i will update it i promise
+
+!note! the script will fail when you have created your user, but this error does not affect to the installation because it fails when its done!
