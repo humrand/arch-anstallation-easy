@@ -7,4 +7,4 @@ so, i was thinking and i decided to create a python script that makes arch insta
 Why? because i was bored and decided to do this, but i will update it i promise
 
 # !note!
-the script will no longer fail with this new version, i automatized partitioning too and added kde plasma, i added nvidia intel/amd drivers
+the script will no longer fail with this new version, i automatized partitioning too and added kde plasma, i added nvidia intel/amd drivers, next desktop manager is cinnamon
