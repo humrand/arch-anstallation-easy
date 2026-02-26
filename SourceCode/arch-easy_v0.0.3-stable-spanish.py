@@ -1,6 +1,11 @@
 import subprocess
 import sys
 
+# MIT LICENSE, YOU CAN USE IT BUT YOU GOTTA GIVE ME CREDITS,
+# made by humrand https://github.com/humrand/arch-anstallation-easy
+# DO NOT REMOVE THIS FROM YOUR CODE IF YOU USE IT TO MODIFY IT.
+
+
 def ejecutar(cmd):
     print(f"\n>>> Ejecutando: {cmd}")
     resultado = subprocess.run(cmd, shell=True)
