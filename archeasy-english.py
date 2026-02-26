@@ -105,3 +105,6 @@ print("\nInstallation finished.")
 resp = input("Reboot now? (y/n): ")
 if resp.lower() == "y":
     run("reboot")
+
+
+# NEXT TO BE ADDED: DESKTOP CINNAMON, ONE SINGLE .PY FILE AND ASK YOUR LANGUAGE, AND IM GONNA ADD LOCALES AND SYSTEM HOUR 
