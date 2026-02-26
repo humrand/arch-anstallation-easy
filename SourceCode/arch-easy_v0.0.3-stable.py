@@ -1,5 +1,3 @@
-# DO NOT USE THIS YET!!!! THIS IS EXPERIMENTAL ONLY & UNSTABLE!!!!
-
 import subprocess
 import sys
 
