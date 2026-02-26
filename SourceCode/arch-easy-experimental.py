@@ -1,3 +1,5 @@
+# DO NOT USE THIS VERSION, IS JUST A TESTING VERSION!!!
+
 import subprocess
 import sys
 
