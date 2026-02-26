@@ -4,6 +4,9 @@ A simple automated Arch Linux installer written in Python, designed to run direc
 
 This project aims to make Arch installation easier, faster, and more beginner-friendly while still keeping full control over the system.
 
+
+
+# The iso image is on the releases
 ---
 
 ## Features
