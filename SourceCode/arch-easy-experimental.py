@@ -1,4 +1,4 @@
-# DO NOT USE THIS VERSION, IS JUST A TESTING VERSION!!!
+# DO NOT USE THIS YET!!!! THIS IS EXPERIMENTAL ONLY!!!
 
 import subprocess
 import sys
@@ -15,22 +15,30 @@ def run(cmd):
         print("Error running command. Aborting.")
         sys.exit(1)
 
-def get_largest_disk():
+def list_disks():
     output = subprocess.check_output("lsblk -b -d -o NAME,SIZE | tail -n +2", shell=True).decode()
     disks = []
     for line in output.splitlines():
         name, size = line.split()
-        disks.append((name, int(size)))
-    disks.sort(key=lambda x: x[1], reverse=True)
-    return disks[0][0]
+        size_gb = int(size) // (1024**3)
+        disks.append((name, size_gb))
+    return disks
+
+def choose_disk():
+    disks = list_disks()
+    print("Available disks:")
+    for i, (name, size) in enumerate(disks):
+        print(f"{i+1}. /dev/{name} ({size} GB)")
+    choice = int(input("Select disk number: "))
+    return disks[choice-1][0]
 
 def confirm(msg):
     resp = input(f"{msg} (y/n): ").lower()
     return resp == "y"
 
-disk = get_largest_disk()
+disk = choose_disk()
 disk_path = f"/dev/{disk}"
-print(f"Detected disk: {disk_path}")
+print(f"Selected disk: {disk_path}")
 
 partitions = subprocess.check_output(f"lsblk -n -o NAME {disk_path}", shell=True).decode().splitlines()[1:]
 if partitions:
@@ -45,10 +53,10 @@ if not confirm(f"ALL DATA on {disk_path} will be erased. Continue?"):
     print("Cancelled.")
     sys.exit(0)
 
-swap_size = input("Enter swap size (example 8G): ")
+swap_size = input("Enter swap size in GB (example 8): ")
 
 run(f"sgdisk -n1:0:+1G -t1:ef00 {disk_path}")
-run(f"sgdisk -n2:0:+{swap_size} -t2:8200 {disk_path}")
+run(f"sgdisk -n2:0:+{swap_size}G -t2:8200 {disk_path}")
 run(f"sgdisk -n3:0:0 -t3:8300 {disk_path}")
 
 p1 = f"{disk_path}1" if "nvme" not in disk else f"{disk_path}p1"
@@ -92,8 +100,7 @@ chroot("systemctl enable NetworkManager")
 run(f"arch-chroot /mnt grub-install {disk_path}")
 run("arch-chroot /mnt grub-mkconfig -o /boot/grub/grub.cfg")
 
-gpu = input("Select GPU: 1 for NVIDIA, 2 for AMD/Intel: ")
-
+gpu = input("Select GPU: 1 for NVIDIA, 2 for AMD/Intel (or press ENTER to skip): ")
 if gpu == "1":
     chroot("pacman -S --noconfirm nvidia nvidia-utils nvidia-settings")
 elif gpu == "2":
