@@ -7,10 +7,10 @@ import sys
 
 
 def run(cmd):
-    print(f"\n>>> Ejecutando: {cmd}")
+    print(f"\n>>> Running: {cmd}")
     result = subprocess.run(cmd, shell=True)
     if result.returncode != 0:
-        print("Error al ejecutar el comando. Abortando.")
+        print("Error running command. Aborting.")
         sys.exit(1)
 
 def get_largest_disk():
@@ -23,29 +23,30 @@ def get_largest_disk():
     return disks[0][0]
 
 def confirm(msg):
-    resp = input(f"{msg} (s/n): ").lower()
-    return resp == "s"
+    resp = input(f"{msg} (y/n): ").lower()
+    return resp == "y"
 
 disk = get_largest_disk()
 disk_path = f"/dev/{disk}"
-print(f"Disco detectado: {disk_path}")
+print(f"Detected disk: {disk_path}")
 
-# Detectar si hay particiones
 partitions = subprocess.check_output(f"lsblk -n -o NAME {disk_path}", shell=True).decode().splitlines()[1:]
 if partitions:
-    print(f"Se detectaron particiones en {disk_path}: {', '.join(partitions)}")
-    if confirm("¿Deseas borrar todas las particiones existentes?"):
+    print(f"Partitions detected on {disk_path}: {', '.join(partitions)}")
+    if confirm("Do you want to erase all existing partitions?"):
         run(f"sgdisk -Z {disk_path}")
     else:
-        print("No se puede continuar con particiones existentes. Abortando.")
+        print("Cannot continue with existing partitions. Aborting.")
         sys.exit(0)
 
-if not confirm(f"SE BORRARÁ TODO EN {disk_path}. ¿Continuar?"):
-    print("Cancelado.")
+if not confirm(f"ALL DATA on {disk_path} will be erased. Continue?"):
+    print("Cancelled.")
     sys.exit(0)
 
+swap_size = input("Enter swap size (example 8G): ")
+
 run(f"sgdisk -n1:0:+1G -t1:ef00 {disk_path}")
-run(f"sgdisk -n2:0:+8G -t2:8200 {disk_path}")
+run(f"sgdisk -n2:0:+{swap_size} -t2:8200 {disk_path}")
 run(f"sgdisk -n3:0:0 -t3:8300 {disk_path}")
 
 p1 = f"{disk_path}1" if "nvme" not in disk else f"{disk_path}p1"
@@ -61,26 +62,26 @@ run(f"mount {p3} /mnt")
 run("mkdir -p /mnt/boot/efi")
 run(f"mount {p1} /mnt/boot/efi")
 
-if not confirm("¿Instalar el sistema base con pacstrap?"):
+if not confirm("Install base system with pacstrap?"):
     run("poweroff")
     sys.exit(0)
 
 run("pacstrap /mnt linux linux-firmware sof-firmware base-devel grub efibootmgr vim nano networkmanager")
 run("genfstab -U /mnt >> /mnt/etc/fstab")
 
-hostname = input("Ingresa el nombre del equipo: ")
+hostname = input("Enter hostname: ")
 with open("/mnt/etc/hostname", "w") as f:
     f.write(hostname + "\n")
 
 def chroot(cmd):
     run(f"arch-chroot /mnt /bin/bash -c \"{cmd}\"")
 
-print("Configura la contraseña de root:")
+print("Set root password:")
 chroot("passwd")
 
-username = input("Ingresa el nombre de usuario: ")
+username = input("Enter username: ")
 chroot(f"useradd -m -G wheel -s /bin/bash {username}")
-print("Configura la contraseña del usuario:")
+print("Set user password:")
 chroot(f"passwd {username}")
 
 chroot("sed -i 's/^# %wheel ALL=(ALL:ALL) ALL/%wheel ALL=(ALL:ALL) ALL/' /etc/sudoers")
@@ -89,20 +90,28 @@ chroot("systemctl enable NetworkManager")
 run(f"arch-chroot /mnt grub-install {disk_path}")
 run("arch-chroot /mnt grub-mkconfig -o /boot/grub/grub.cfg")
 
-if confirm("¿Deseas instalar KDE Plasma?"):
-    chroot("pacman -S --noconfirm xorg-server xorg-apps xorg-xinit xorg-xrandr")
-    chroot("pacman -S --noconfirm xf86-input-libinput")
-    gpu = input("Selecciona GPU: 1 para NVIDIA, 2 para AMD/Intel: ")
-    if gpu == "1":
-        chroot("pacman -S --noconfirm nvidia nvidia-utils nvidia-settings")
-    elif gpu == "2":
-        chroot("pacman -S --noconfirm mesa")
-    chroot("pacman -S --noconfirm plasma-meta")
-    chroot("pacman -S --noconfirm konsole dolphin ark kate plasma-nm")
-    chroot("pacman -S --noconfirm sddm")
-    chroot("systemctl enable sddm")
+gpu = input("Select GPU: 1 for NVIDIA, 2 for AMD/Intel: ")
 
-print("\nInstalación finalizada.")
-resp = input("¿Reiniciar ahora? (s/n): ")
-if resp.lower() == "s":
+if gpu == "1":
+    chroot("pacman -S --noconfirm nvidia nvidia-utils nvidia-settings")
+elif gpu == "2":
+    chroot("pacman -S --noconfirm mesa")
+
+if confirm("Do you want a desktop environment?"):
+    choice = input("Choose desktop: 1 = KDE Plasma, 2 = Cinnamon: ")
+
+    if choice == "1":
+        chroot("pacman -S --noconfirm xorg-server xorg-apps xorg-xinit xorg-xrandr xf86-input-libinput")
+        chroot("pacman -S --noconfirm plasma-meta konsole dolphin ark kate plasma-nm firefox")
+        chroot("pacman -S --noconfirm sddm")
+        chroot("systemctl enable sddm")
+
+    elif choice == "2":
+        chroot("pacman -S --noconfirm cinnamon lightdm lightdm-gtk-greeter xorg")
+        chroot("pacman -S --noconfirm alacritty firefox")
+        chroot("systemctl enable lightdm")
+
+print("\nInstallation finished.")
+resp = input("Reboot now? (y/n): ")
+if resp.lower() == "y":
     run("reboot")
