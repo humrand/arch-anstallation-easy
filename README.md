@@ -25,8 +25,6 @@ The ISO image is available on the releases.
   - EXT4 for root
   - Swap initialization
 - Automatic mounting and swap activation
-- Base system installation using `pacstrap`
-- Automatic `fstab` generation
 - Hostname configuration
 - Root password setup
 - User creation with sudo (wheel group)
@@ -39,7 +37,7 @@ The ISO image is available on the releases.
   - Necessary Xorg packages
   - GPU driver selection nvidia or intel/amd
   - Firefox and basic apps (Alacritty, Konsole, Dolphin, Kate, Ark, Plasma-NM)
-  - Display manager setup (`sddm` for KDE, `lightdm` for Cinnamon)
+  - Display manager setup (sddm for KDE, lightdm for Cinnamon)
 - Input validation: if invalid commands are entered, the user is prompted again
 - Final prompt to reboot (installation does not auto-unmount partitions)
 
