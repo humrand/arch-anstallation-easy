@@ -3,6 +3,11 @@ import sys
 import re
 import time
 from datetime import datetime
+import getpass
+import threading
+import sys
+import termios
+import tty
 
 LOG_FILE = "/mnt/install_log.txt"
 
@@ -15,21 +20,27 @@ def log(msg):
     except:
         pass
 
-def run(cmd, ignore_error=False):
+def run(cmd, ignore_error=False, show_progress=False):
     log(f"Running: {cmd}")
-    result = subprocess.run(cmd, shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    if result.returncode != 0:
-        log(f"ERROR: Command failed: {cmd}")
-        if not ignore_error:
-            print("Error. Abortando.")
-            sys.exit(1)
+    if show_progress:
+        for i in range(0,101,5):
+            time.sleep(0.1)
+            print(f"[{'#'* (i//5)}{' '*(20-(i//5))}] {i}%", end='\r')
+        print()
+    else:
+        result = subprocess.run(cmd, shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        if result.returncode != 0:
+            log(f"ERROR: Command failed: {cmd}")
+            if not ignore_error:
+                print("Command failed. Aborting.")
+                sys.exit(1)
 
 def confirm(msg):
     while True:
-        resp = input(f"{msg} (s/n): ").lower()
-        if resp in ("s", "n"):
-            return resp == "s"
-        print("Comando inválido, intente de nuevo.")
+        resp = input(f"{msg} (y/n): ").lower()
+        if resp in ("y", "n"):
+            return resp == "y"
+        print("Invalid command, try again.")
 
 def valid_name(name):
     return re.match(r"^[a-zA-Z0-9_-]{1,32}$", name)
@@ -55,25 +66,48 @@ def list_disks():
 
 def choose_disk():
     disks = list_disks()
-    print("Discos disponibles:")
+    print(L("Available disks:","Discos disponibles:"))
     for i, (name, size) in enumerate(disks):
         print(f"{i+1}. /dev/{name} ({size} GB)")
     while True:
-        choice = input("Seleccione número de disco: ")
+        choice = input(L("Select disk number: ","Seleccione número de disco: "))
         if choice.isdigit() and 1 <= int(choice) <= len(disks):
             return disks[int(choice)-1][0]
-        print("Comando inválido, intente de nuevo.")
+        print(L("Invalid command, try again.","Comando inválido, intente de nuevo."))
 
 def choose_desktop():
     while True:
-        choice = input("Desea instalar entorno de escritorio? 1 = KDE Plasma, 2 = Cinnamon, 0 = Ninguno: ")
+        choice = input(L("Do you want a desktop environment? 1 = KDE Plasma, 2 = Cinnamon, 0 = None: ","Desea instalar entorno de escritorio? 1 = KDE Plasma, 2 = Cinnamon, 0 = Ninguno: "))
         if choice in ("0","1","2"):
             return choice
-        print("Comando inválido, intente de nuevo.")
+        print(L("Invalid command, try again.","Comando inválido, intente de nuevo."))
+
+def input_password(prompt):
+    print(prompt, end='', flush=True)
+    password = ""
+    fd = sys.stdin.fileno()
+    old_settings = termios.tcgetattr(fd)
+    try:
+        tty.setraw(fd)
+        while True:
+            ch = sys.stdin.read(1)
+            if ch == '\n' or ch == '\r':
+                print()
+                break
+            elif ch == '\x7f':
+                if len(password) > 0:
+                    password = password[:-1]
+                    print('\b \b', end='', flush=True)
+            else:
+                password += ch
+                print('*', end='', flush=True)
+    finally:
+        termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
+    return password
 
 lang = None
 while True:
-    print("Seleccione idioma: 1 = English, 2 = Español")
+    print("Select language: 1 = English, 2 = Español")
     choice = input("> ")
     if choice=="1":
         lang="en"
@@ -82,15 +116,15 @@ while True:
         lang="es"
         break
     else:
-        print("Comando inválido, intente de nuevo")
+        print("Invalid command, try again")
 
 def L(msg_en, msg_es):
     return msg_en if lang=="en" else msg_es
 
 hostname = input_validated(L("Enter hostname: ","Ingrese el nombre del equipo: "), valid_name, L("Invalid hostname.","Nombre inválido."))
 username = input_validated(L("Enter username: ","Ingrese nombre de usuario: "), valid_name, L("Invalid username.","Usuario inválido."))
-root_pass = input(L("Enter root password: ","Ingrese contraseña de root: "))
-user_pass = input(L("Enter user password: ","Ingrese contraseña de usuario: "))
+root_pass = input_password(L("Enter root password: ","Ingrese contraseña de root: "))
+user_pass = input_password(L("Enter user password: ","Ingrese contraseña de usuario: "))
 swap_size = input_validated(L("Enter swap size in GB (example 8): ","Ingrese tamaño de swap en GB (ej 8): "), valid_swap, L("Invalid swap size.","Tamaño de swap inválido."))
 desktop_choice = choose_desktop()
 
@@ -100,14 +134,14 @@ log(f"{L('Selected disk','Disco seleccionado')}: {disk_path}")
 
 partitions = subprocess.check_output(f"lsblk -n -o NAME {disk_path}", shell=True).decode().splitlines()[1:]
 if partitions:
-    print(f"Particiones detectadas en {disk_path}: {', '.join(partitions)}")
+    print(f"{L('Partitions detected','Particiones detectadas')} {disk_path}: {', '.join(partitions)}")
     if confirm(L("Do you want to erase all existing partitions?","Desea borrar todas las particiones existentes?")):
         run(f"sgdisk -Z {disk_path}")
     else:
         print(L("Cannot continue with existing partitions. Aborting.","No se puede continuar con particiones existentes. Abortando."))
         sys.exit(0)
 
-log(L("Creando particiones...","Creating partitions..."))
+log(L("Creating partitions...","Creando particiones..."))
 run(f"sgdisk -n1:0:+1G -t1:ef00 {disk_path}")
 run(f"sgdisk -n2:0:+{swap_size}G -t2:8200 {disk_path}")
 run(f"sgdisk -n3:0:0 -t3:8300 {disk_path}")
@@ -116,26 +150,26 @@ p1 = f"{disk_path}1" if "nvme" not in disk else f"{disk_path}p1"
 p2 = f"{disk_path}2" if "nvme" not in disk else f"{disk_path}p2"
 p3 = f"{disk_path}3" if "nvme" not in disk else f"{disk_path}p3"
 
-log(L("Formateando particiones...","Formatting partitions..."))
+log(L("Formatting partitions...","Formateando particiones..."))
 run(f"mkfs.fat -F32 {p1}")
 run(f"mkswap {p2}")
 run(f"swapon {p2}")
 run(f"mkfs.ext4 {p3}")
 
-log(L("Montando particiones...","Mounting partitions..."))
+log(L("Mounting partitions...","Montando particiones..."))
 run(f"mount {p3} /mnt")
 run("mkdir -p /mnt/boot/efi")
 run(f"mount {p1} /mnt/boot/efi")
 
-log(L("Instalando sistema base...","Installing base system..."))
+log(L("Installing base system...","Instalando sistema base..."))
 packages = "linux linux-firmware sof-firmware base-devel grub efibootmgr vim nano networkmanager"
-run(f"pacstrap /mnt {packages}", ignore_error=True)
+run(f"pacstrap /mnt {packages}", show_progress=True)
 run("genfstab -U /mnt >> /mnt/etc/fstab")
 
 def chroot(cmd):
     run(f"arch-chroot /mnt /bin/bash -c \"{cmd}\"", ignore_error=True)
 
-log(L("Configurando sistema...","Configuring system..."))
+log(L("Configuring system...","Configurando sistema..."))
 with open("/mnt/etc/hostname", "w") as f:
     f.write(hostname + "\n")
 
@@ -145,30 +179,28 @@ chroot(f"echo '{user_pass}' | passwd --stdin {username}")
 chroot("sed -i 's/^# %wheel ALL=(ALL:ALL) ALL/%wheel ALL=(ALL:ALL) ALL/' /etc/sudoers")
 chroot("systemctl enable NetworkManager")
 
+log(L("Installing GRUB...","Instalando GRUB..."))
+run(f"arch-chroot /mnt grub-install {disk_path}", show_progress=True)
+run("arch-chroot /mnt grub-mkconfig -o /boot/grub/grub.cfg", show_progress=True)
 
-log(L("Instalando GRUB...","Installing GRUB..."))
-run(f"arch-chroot /mnt grub-install {disk_path}")
-run("arch-chroot /mnt grub-mkconfig -o /boot/grub/grub.cfg")
+if desktop_choice=="1":
+    log(L("Installing KDE Plasma...","Instalando KDE Plasma..."))
+    run("pacman -S --noconfirm xorg-server xorg-apps xorg-xinit xorg-xrandr xf86-input-libinput", show_progress=True)
+    run("pacman -S --noconfirm plasma-meta konsole dolphin ark kate plasma-nm firefox", show_progress=True)
+    run("pacman -S --noconfirm sddm", show_progress=True)
+    run("systemctl enable sddm")
+elif desktop_choice=="2":
+    log(L("Installing Cinnamon...","Instalando Cinnamon..."))
+    run("pacman -S --noconfirm xorg-server xorg-apps xorg-xinit xorg-xrandr xf86-input-libinput", show_progress=True)
+    run("pacman -S --noconfirm cinnamon lightdm lightdm-gtk-greeter alacritty firefox", show_progress=True)
+    run("systemctl enable lightdm")
 
-
-if desktop_choice=="1":  # KDE
-    log(L("Instalando KDE Plasma...","Installing KDE Plasma..."))
-    chroot("pacman -S --noconfirm xorg-server xorg-apps xorg-xinit xorg-xrandr xf86-input-libinput")
-    chroot("pacman -S --noconfirm plasma-meta konsole dolphin ark kate plasma-nm firefox")
-    chroot("pacman -S --noconfirm sddm")
-    chroot("systemctl enable sddm")
-elif desktop_choice=="2":  # Cinnamon
-    log(L("Instalando Cinnamon...","Installing Cinnamon..."))
-    chroot("pacman -S --noconfirm xorg-server xorg-apps xorg-xinit xorg-xrandr xf86-input-libinput")
-    chroot("pacman -S --noconfirm cinnamon lightdm lightdm-gtk-greeter alacritty firefox")
-    chroot("systemctl enable lightdm")
-
-print(L("Instalación completándose...","Installation finishing..."))
+log(L("Installation finishing...","Instalación finalizando..."))
 for i in range(0,101,5):
-    time.sleep(0.2)
+    time.sleep(0.1)
     print(f"[{'#'* (i//5)}{' '*(20-(i//5))}] {i}%", end='\r')
 print("\n")
 
-log(L("Instalación finalizada.","Installation finished."))
-if confirm(L("Reiniciar ahora?","Reboot now?")):
+log(L("Installation finished.","Instalación finalizada."))
+if confirm(L("Reboot now?","Reiniciar ahora?")):
     run("reboot")
