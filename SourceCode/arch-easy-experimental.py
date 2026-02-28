@@ -1,19 +1,30 @@
-# NOW THIS IS SAFE TO USE, HOWEVER, THE ISO WILL UPDATE SOON SO NO NEED TO CLONE THE REPO
+#DO NOT RUN THIS, THIS IS EXPERIMENTAL
+
 
 import subprocess
 import sys
+import re
+from datetime import datetime
 
-# MIT LICENSE, YOU CAN USE IT BUT YOU GOTTA GIVE ME CREDITS,
-# made by humrand https://github.com/humrand/arch-anstallation-easy
-# DO NOT REMOVE THIS FROM YOUR CODE IF YOU USE IT TO MODIFY IT.
+LOG_FILE = "/mnt/install_log.txt"
 
+def log(msg):
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    print(f"[{timestamp}] {msg}")
+    try:
+        with open(LOG_FILE, "a") as f:
+            f.write(f"[{timestamp}] {msg}\n")
+    except:
+        pass
 
-def run(cmd):
-    print(f"\n>>> Running: {cmd}")
+def run(cmd, ignore_error=False):
+    log(f"Running: {cmd}")
     result = subprocess.run(cmd, shell=True)
     if result.returncode != 0:
-        print("Error running command. Aborting.")
-        sys.exit(1)
+        log(f"ERROR: Command failed: {cmd}")
+        if not ignore_error:
+            print("Command failed. Aborting.")
+            sys.exit(1)
 
 def list_disks():
     output = subprocess.check_output("lsblk -b -d -o NAME,SIZE | tail -n +2", shell=True).decode()
@@ -29,16 +40,62 @@ def choose_disk():
     print("Available disks:")
     for i, (name, size) in enumerate(disks):
         print(f"{i+1}. /dev/{name} ({size} GB)")
-    choice = int(input("Select disk number: "))
-    return disks[choice-1][0]
+    while True:
+        choice = input("Select disk number: ")
+        if choice.isdigit() and 1 <= int(choice) <= len(disks):
+            return disks[int(choice)-1][0]
+        print("Invalid command, try again.")
 
 def confirm(msg):
-    resp = input(f"{msg} (y/n): ").lower()
-    return resp == "y"
+    while True:
+        resp = input(f"{msg} (y/n): ").lower()
+        if resp in ("y", "n"):
+            return resp == "y"
+        print("Invalid command, try again.")
+
+def choose_desktop():
+    while True:
+        choice = input("Choose desktop environment: 1 = KDE Plasma, 2 = Cinnamon: ")
+        if choice in ("1", "2"):
+            return choice
+        print("Invalid command, try again.")
+
+def valid_swap_size(size_str):
+    return re.match(r"^\d+$", size_str) and int(size_str) > 0
+
+def input_swap_size():
+    while True:
+        size = input("Enter swap size in GB (example 8): ")
+        if valid_swap_size(size):
+            return size
+        print("Invalid swap size, try again.")
+
+def valid_name(name):
+    return re.match(r"^[a-zA-Z0-9_-]{1,32}$", name)
+
+def input_hostname():
+    while True:
+        name = input("Enter hostname: ")
+        if valid_name(name):
+            return name
+        print("Invalid hostname, try again (max 32 chars, letters/numbers/_/-)")
+
+def input_username():
+    while True:
+        name = input("Enter username: ")
+        if valid_name(name):
+            return name
+        print("Invalid username, try again (max 32 chars, letters/numbers/_/-)")
+
+def chroot(cmd):
+    run(f"arch-chroot /mnt /bin/bash -c \"{cmd}\"")
+
+
+log("Starting Arch Linux automated installation")
 
 disk = choose_disk()
 disk_path = f"/dev/{disk}"
-print(f"Selected disk: {disk_path}")
+log(f"Selected disk: {disk_path}")
 
 partitions = subprocess.check_output(f"lsblk -n -o NAME {disk_path}", shell=True).decode().splitlines()[1:]
 if partitions:
@@ -53,7 +110,7 @@ if not confirm(f"ALL DATA on {disk_path} will be erased. Continue?"):
     print("Cancelled.")
     sys.exit(0)
 
-swap_size = input("Enter swap size in GB (example 8): ")
+swap_size = input_swap_size()
 
 run(f"sgdisk -n1:0:+1G -t1:ef00 {disk_path}")
 run(f"sgdisk -n2:0:+{swap_size}G -t2:8200 {disk_path}")
@@ -79,17 +136,14 @@ if not confirm("Install base system with pacstrap?"):
 run("pacstrap /mnt linux linux-firmware sof-firmware base-devel grub efibootmgr vim nano networkmanager")
 run("genfstab -U /mnt >> /mnt/etc/fstab")
 
-hostname = input("Enter hostname: ")
+hostname = input_hostname()
 with open("/mnt/etc/hostname", "w") as f:
     f.write(hostname + "\n")
-
-def chroot(cmd):
-    run(f"arch-chroot /mnt /bin/bash -c \"{cmd}\"")
 
 print("Set root password:")
 chroot("passwd")
 
-username = input("Enter username: ")
+username = input_username()
 chroot(f"useradd -m -G wheel -s /bin/bash {username}")
 print("Set user password:")
 chroot(f"passwd {username}")
@@ -100,27 +154,19 @@ chroot("systemctl enable NetworkManager")
 run(f"arch-chroot /mnt grub-install {disk_path}")
 run("arch-chroot /mnt grub-mkconfig -o /boot/grub/grub.cfg")
 
-gpu = input("Select GPU: 1 for NVIDIA, 2 for AMD/Intel (or press ENTER to skip): ")
-if gpu == "1":
-    chroot("pacman -S --noconfirm nvidia nvidia-utils nvidia-settings")
-elif gpu == "2":
-    chroot("pacman -S --noconfirm mesa")
-
 if confirm("Do you want a desktop environment?"):
-    choice = input("Choose desktop: 1 = KDE Plasma, 2 = Cinnamon: ")
-
-    if choice == "1":
+    desktop_choice = choose_desktop()
+    if desktop_choice == "1":  # KDE Plasma
         chroot("pacman -S --noconfirm xorg-server xorg-apps xorg-xinit xorg-xrandr xf86-input-libinput")
         chroot("pacman -S --noconfirm plasma-meta konsole dolphin ark kate plasma-nm firefox")
         chroot("pacman -S --noconfirm sddm")
         chroot("systemctl enable sddm")
-
-    elif choice == "2":
-        chroot("pacman -S --noconfirm cinnamon lightdm lightdm-gtk-greeter xorg")
+    elif desktop_choice == "2":  # Cinnamon
+        chroot("pacman -S --noconfirm xorg-server xorg-apps xorg-xinit xorg-xrandr xf86-input-libinput")
+        chroot("pacman -S --noconfirm cinnamon lightdm lightdm-gtk-greeter")
         chroot("pacman -S --noconfirm alacritty firefox")
         chroot("systemctl enable lightdm")
 
-print("\nInstallation finished.")
-resp = input("Reboot now? (y/n): ")
-if resp.lower() == "y":
+log("Installation finished.")
+if confirm("Reboot now?"):
     run("reboot")
