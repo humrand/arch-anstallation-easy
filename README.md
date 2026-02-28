@@ -34,9 +34,9 @@ The ISO image is available in the releases.
   - Cinnamon
 - Desktop installation includes:
   - Necessary Xorg packages
-  - Firefox and basic apps (Alacritty, Konsole, Dolphin, Kate, Ark, Plasma-NM)
+  - Firefox and basic apps (Alacritty, Konsole, Dolphin, Kate, and Ark)
   - Display manager setup (sddm for KDE, lightdm for Cinnamon)
-- Final prompt to reboot (does not auto-unmount partitions)
+- Final prompt to reboot
 
 ## Requirements
 
