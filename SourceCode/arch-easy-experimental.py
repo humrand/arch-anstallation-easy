@@ -4,8 +4,6 @@ import re
 import time
 from datetime import datetime
 import getpass
-import threading
-import sys
 import termios
 import tty
 
@@ -20,20 +18,30 @@ def log(msg):
     except:
         pass
 
-def run(cmd, ignore_error=False, show_progress=False):
+def run_with_real_progress(cmd, ignore_error=False):
     log(f"Running: {cmd}")
-    if show_progress:
-        for i in range(0,101,5):
-            time.sleep(0.1)
-            print(f"[{'#'* (i//5)}{' '*(20-(i//5))}] {i}%", end='\r')
+    process = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, universal_newlines=True, bufsize=1)
+    last_percent = -1
+    try:
+        for line in process.stdout:
+            line = line.strip()
+            match = re.search(r'(\d{1,3})%', line)
+            if match:
+                percent = int(match.group(1))
+                if percent != last_percent:
+                    last_percent = percent
+                    filled = percent // 5
+                    print(f"[{'#'*filled}{' '*(20-filled)}] {percent}%", end='\r')
+        process.wait()
         print()
-    else:
-        result = subprocess.run(cmd, shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        if result.returncode != 0:
+        if process.returncode != 0:
             log(f"ERROR: Command failed: {cmd}")
             if not ignore_error:
                 print("Command failed. Aborting.")
                 sys.exit(1)
+    except Exception as e:
+        process.kill()
+        raise e
 
 def confirm(msg):
     while True:
@@ -136,38 +144,39 @@ partitions = subprocess.check_output(f"lsblk -n -o NAME {disk_path}", shell=True
 if partitions:
     print(f"{L('Partitions detected','Particiones detectadas')} {disk_path}: {', '.join(partitions)}")
     if confirm(L("Do you want to erase all existing partitions?","Desea borrar todas las particiones existentes?")):
-        run(f"sgdisk -Z {disk_path}")
+        run_with_real_progress(f"sgdisk -Z {disk_path}")
     else:
         print(L("Cannot continue with existing partitions. Aborting.","No se puede continuar con particiones existentes. Abortando."))
         sys.exit(0)
 
 log(L("Creating partitions...","Creando particiones..."))
-run(f"sgdisk -n1:0:+1G -t1:ef00 {disk_path}")
-run(f"sgdisk -n2:0:+{swap_size}G -t2:8200 {disk_path}")
-run(f"sgdisk -n3:0:0 -t3:8300 {disk_path}")
+run_with_real_progress(f"sgdisk -n1:0:+1G -t1:ef00 {disk_path}")
+run_with_real_progress(f"sgdisk -n2:0:+{swap_size}G -t2:8200 {disk_path}")
+run_with_real_progress(f"sgdisk -n3:0:0 -t3:8300 {disk_path}")
 
 p1 = f"{disk_path}1" if "nvme" not in disk else f"{disk_path}p1"
 p2 = f"{disk_path}2" if "nvme" not in disk else f"{disk_path}p2"
 p3 = f"{disk_path}3" if "nvme" not in disk else f"{disk_path}p3"
 
 log(L("Formatting partitions...","Formateando particiones..."))
-run(f"mkfs.fat -F32 {p1}")
-run(f"mkswap {p2}")
-run(f"swapon {p2}")
-run(f"mkfs.ext4 {p3}")
+run_with_real_progress(f"mkfs.fat -F32 {p1}")
+run_with_real_progress(f"mkswap {p2}")
+run_with_real_progress(f"swapon {p2}")
+run_with_real_progress(f"mkfs.ext4 {p3}")
 
 log(L("Mounting partitions...","Montando particiones..."))
-run(f"mount {p3} /mnt")
-run("mkdir -p /mnt/boot/efi")
-run(f"mount {p1} /mnt/boot/efi")
+run_with_real_progress(f"mount {p3} /mnt")
+run_with_real_progress("mkdir -p /mnt/boot/efi")
+run_with_real_progress(f"mount {p1} /mnt/boot/efi")
 
 log(L("Installing base system...","Instalando sistema base..."))
 packages = "linux linux-firmware sof-firmware base-devel grub efibootmgr vim nano networkmanager"
-run(f"pacstrap /mnt {packages}", show_progress=True)
-run("genfstab -U /mnt >> /mnt/etc/fstab")
+run_with_real_progress(f"pacstrap /mnt {packages}")
+
+run_with_real_progress("genfstab -U /mnt >> /mnt/etc/fstab")
 
 def chroot(cmd):
-    run(f"arch-chroot /mnt /bin/bash -c \"{cmd}\"", ignore_error=True)
+    run_with_real_progress(f"arch-chroot /mnt /bin/bash -c \"{cmd}\"", ignore_error=True)
 
 log(L("Configuring system...","Configurando sistema..."))
 with open("/mnt/etc/hostname", "w") as f:
@@ -180,20 +189,20 @@ chroot("sed -i 's/^# %wheel ALL=(ALL:ALL) ALL/%wheel ALL=(ALL:ALL) ALL/' /etc/su
 chroot("systemctl enable NetworkManager")
 
 log(L("Installing GRUB...","Instalando GRUB..."))
-run(f"arch-chroot /mnt grub-install {disk_path}", show_progress=True)
-run("arch-chroot /mnt grub-mkconfig -o /boot/grub/grub.cfg", show_progress=True)
+run_with_real_progress(f"arch-chroot /mnt grub-install {disk_path}")
+run_with_real_progress("arch-chroot /mnt grub-mkconfig -o /boot/grub/grub.cfg")
 
 if desktop_choice=="1":
     log(L("Installing KDE Plasma...","Instalando KDE Plasma..."))
-    run("pacman -S --noconfirm xorg-server xorg-apps xorg-xinit xorg-xrandr xf86-input-libinput", show_progress=True)
-    run("pacman -S --noconfirm plasma-meta konsole dolphin ark kate plasma-nm firefox", show_progress=True)
-    run("pacman -S --noconfirm sddm", show_progress=True)
-    run("systemctl enable sddm")
+    run_with_real_progress("pacman -S --noconfirm xorg-server xorg-apps xorg-xinit xorg-xrandr xf86-input-libinput")
+    run_with_real_progress("pacman -S --noconfirm plasma-meta konsole dolphin ark kate plasma-nm firefox")
+    run_with_real_progress("pacman -S --noconfirm sddm")
+    run_with_real_progress("systemctl enable sddm")
 elif desktop_choice=="2":
     log(L("Installing Cinnamon...","Instalando Cinnamon..."))
-    run("pacman -S --noconfirm xorg-server xorg-apps xorg-xinit xorg-xrandr xf86-input-libinput", show_progress=True)
-    run("pacman -S --noconfirm cinnamon lightdm lightdm-gtk-greeter alacritty firefox", show_progress=True)
-    run("systemctl enable lightdm")
+    run_with_real_progress("pacman -S --noconfirm xorg-server xorg-apps xorg-xinit xorg-xrandr xf86-input-libinput")
+    run_with_real_progress("pacman -S --noconfirm cinnamon lightdm lightdm-gtk-greeter alacritty firefox")
+    run_with_real_progress("systemctl enable lightdm")
 
 log(L("Installation finishing...","Instalación finalizando..."))
 for i in range(0,101,5):
@@ -203,4 +212,4 @@ print("\n")
 
 log(L("Installation finished.","Instalación finalizada."))
 if confirm(L("Reboot now?","Reiniciar ahora?")):
-    run("reboot")
+    run_with_real_progress("reboot")
