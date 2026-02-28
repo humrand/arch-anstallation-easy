@@ -111,22 +111,11 @@ while True:
 def L(msg_en, msg_es):
     return msg_en if lang=="en" else msg_es
 
-# ----------------------
-# GPU al inicio
-# ----------------------
-gpu = None
-while True:
-    gpu_input = input(L("Select GPU: 1 = NVIDIA, 2 = AMD/Intel, 0 = None: ","Seleccione GPU: 1 = NVIDIA, 2 = AMD/Intel, 0 = Ninguna: "))
-    if gpu_input in ("0","1","2"):
-        gpu = gpu_input
-        break
-    print(L("Invalid command, try again.","Comando inválido, intente de nuevo."))
-
-hostname = input_validated(L("Enter hostname: ","Ingrese el nombre del equipo: "), valid_name, L("Invalid hostname.","Nombre inválido."))
-username = input_validated(L("Enter username: ","Ingrese nombre de usuario: "), valid_name, L("Invalid username.","Usuario inválido."))
-root_pass = input_password(L("Enter root password: ","Ingrese contraseña de root: "))
-user_pass = input_password(L("Enter user password: ","Ingrese contraseña de usuario: "))
-swap_size = input_validated(L("Enter swap size in GB (example 8): ","Ingrese tamaño de swap en GB (ej 8): "), valid_swap, L("Invalid swap size.","Tamaño de swap inválido."))
+hostname = input_validated(L("Enter hostname:","Ingrese el nombre del equipo:"), valid_name, L("Invalid hostname.","Nombre inválido."))
+username = input_validated(L("Enter username:","Ingrese nombre de usuario:"), valid_name, L("Invalid username.","Usuario inválido."))
+root_pass = input_password(L("Enter root password:","Ingrese contraseña de root:"))
+user_pass = input_password(L("Enter user password:","Ingrese contraseña de usuario:"))
+swap_size = input_validated(L("Enter swap size in GB (example 8):","Ingrese tamaño de swap en GB (ej 8):"), valid_swap, L("Invalid swap size.","Tamaño de swap inválido."))
 desktop_choice = choose_desktop()
 
 disk = choose_disk()
@@ -165,7 +154,6 @@ run(f"mount {p1} /mnt/boot/efi")
 log(L("Installing base system...","Instalando sistema base..."))
 packages = "linux linux-firmware sof-firmware base-devel grub efibootmgr vim nano networkmanager"
 run(f"pacstrap /mnt {packages}")
-
 run("genfstab -U /mnt >> /mnt/etc/fstab")
 
 def chroot(cmd):
@@ -180,6 +168,14 @@ chroot(f"useradd -m -G wheel -s /bin/bash {username}")
 chroot(f"echo '{user_pass}' | passwd --stdin {username}")
 chroot("sed -i 's/^# %wheel ALL=(ALL:ALL) ALL/%wheel ALL=(ALL:ALL) ALL/' /etc/sudoers")
 chroot("systemctl enable NetworkManager")
+
+gpu = None
+while True:
+    gpu_input = input(L("Select GPU: 1 = NVIDIA, 2 = AMD/Intel, 0 = None:","Seleccione GPU: 1 = NVIDIA, 2 = AMD/Intel, 0 = Ninguna:"))
+    if gpu_input in ("0","1","2"):
+        gpu = gpu_input
+        break
+    print(L("Invalid command, try again.","Comando inválido, intente de nuevo."))
 
 if gpu == "1":
     chroot("pacman -S --noconfirm nvidia nvidia-utils nvidia-settings")
