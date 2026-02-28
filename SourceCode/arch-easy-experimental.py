@@ -73,7 +73,7 @@ def choose_desktop():
         print(L("Invalid command, try again.","Comando inválido, intente de nuevo."))
 
 def input_password(prompt):
-    print(prompt, end='', flush=True)
+    print(prompt)
     password = ""
     fd = sys.stdin.fileno()
     old_settings = termios.tcgetattr(fd)
@@ -110,6 +110,17 @@ while True:
 
 def L(msg_en, msg_es):
     return msg_en if lang=="en" else msg_es
+
+# ----------------------
+# GPU al inicio
+# ----------------------
+gpu = None
+while True:
+    gpu_input = input(L("Select GPU: 1 = NVIDIA, 2 = AMD/Intel, 0 = None: ","Seleccione GPU: 1 = NVIDIA, 2 = AMD/Intel, 0 = Ninguna: "))
+    if gpu_input in ("0","1","2"):
+        gpu = gpu_input
+        break
+    print(L("Invalid command, try again.","Comando inválido, intente de nuevo."))
 
 hostname = input_validated(L("Enter hostname: ","Ingrese el nombre del equipo: "), valid_name, L("Invalid hostname.","Nombre inválido."))
 username = input_validated(L("Enter username: ","Ingrese nombre de usuario: "), valid_name, L("Invalid username.","Usuario inválido."))
@@ -169,14 +180,6 @@ chroot(f"useradd -m -G wheel -s /bin/bash {username}")
 chroot(f"echo '{user_pass}' | passwd --stdin {username}")
 chroot("sed -i 's/^# %wheel ALL=(ALL:ALL) ALL/%wheel ALL=(ALL:ALL) ALL/' /etc/sudoers")
 chroot("systemctl enable NetworkManager")
-
-gpu = None
-while True:
-    gpu_input = input(L("Select GPU: 1 = NVIDIA, 2 = AMD/Intel, 0 = None: ","Seleccione GPU: 1 = NVIDIA, 2 = AMD/Intel, 0 = Ninguna: "))
-    if gpu_input in ("0","1","2"):
-        gpu = gpu_input
-        break
-    print(L("Invalid command, try again.","Comando inválido, intente de nuevo."))
 
 if gpu == "1":
     chroot("pacman -S --noconfirm nvidia nvidia-utils nvidia-settings")
