@@ -96,6 +96,7 @@ typedef enum {
     STR_DEPS_WARNING,
     STR_BTN_PREV,
     STR_BTN_NEXT,
+    STR_OPT_HIDE_ADS,
     N_STRINGS
 } StrID;
 
@@ -252,6 +253,8 @@ static const char *g_strings[N_STRINGS][2] = {
       "◀  Previous"                                         },
     { "Siguiente  ▶",
       "Next  ▶"                                             },
+    { "Quitar publicidad",
+      "Remove ads"                                          },
 };
 
 #define T(id) g_strings[(id)][g_lang]
@@ -344,6 +347,48 @@ static void load_show_whats_new_pref(void) {
         g_show_whats_new = (buf[0] != '0');
     }
     g_free(path);
+}
+
+static gboolean  g_hide_ads     = FALSE;
+static GtkWidget *g_btn_discord = NULL;
+static GtkWidget *g_btn_github  = NULL;
+
+static void save_hide_ads_pref(void) {
+    char *path = config_path("hide_ads");
+    char *dir  = g_path_get_dirname(path);
+    g_mkdir_with_parents(dir, 0755);
+    FILE *fp = fopen(path, "w");
+    if (fp) {
+        fputs(g_hide_ads ? "1" : "0", fp);
+        fclose(fp);
+    }
+    g_free(dir);
+    g_free(path);
+}
+
+static void load_hide_ads_pref(void) {
+    char *path = config_path("hide_ads");
+    FILE *fp = fopen(path, "r");
+    if (fp) {
+        char buf[4] = {0};
+        fgets(buf, sizeof(buf), fp);
+        fclose(fp);
+        g_hide_ads = (buf[0] == '1');
+    }
+    g_free(path);
+}
+
+static void apply_hide_ads(void) {
+    if (g_btn_discord)
+        gtk_widget_set_visible(g_btn_discord, !g_hide_ads);
+    if (g_btn_github)
+        gtk_widget_set_visible(g_btn_github, !g_hide_ads);
+}
+
+static void on_hide_ads_toggled(GtkToggleButton *btn, gpointer data) {
+    g_hide_ads = gtk_toggle_button_get_active(btn);
+    apply_hide_ads();
+    save_hide_ads_pref();
 }
 
 static const char DARK_CSS[] =
@@ -2461,6 +2506,13 @@ static GtkWidget* create_options_popover(GtkWidget *relative_to) {
     g_signal_connect(upd_btn, "clicked", G_CALLBACK(on_check_updates), NULL);
     gtk_box_pack_start(GTK_BOX(vbox), upd_btn, FALSE, FALSE, 0);
 
+    gtk_box_pack_start(GTK_BOX(vbox), gtk_separator_new(GTK_ORIENTATION_HORIZONTAL), FALSE, FALSE, 6);
+
+    GtkWidget *ads_chk = gtk_check_button_new_with_label(T(STR_OPT_HIDE_ADS));
+    gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(ads_chk), g_hide_ads);
+    g_signal_connect(ads_chk, "toggled", G_CALLBACK(on_hide_ads_toggled), NULL);
+    gtk_box_pack_start(GTK_BOX(vbox), ads_chk, FALSE, FALSE, 0);
+
     gtk_widget_show_all(vbox);
     return popover;
 }
@@ -2560,6 +2612,7 @@ static gboolean on_window_destroy(GtkWidget *w, GdkEvent *event, gpointer d) {
     save_lang_pref();
     save_dark_pref();
     save_show_whats_new_pref();
+    save_hide_ads_pref();
     save_column_widths();
     gtk_main_quit();
     return FALSE;
@@ -2637,6 +2690,39 @@ static GdkPixbuf *create_discord_pixbuf(int size) {
         return NULL;
     }
     return pb;
+}
+
+static const char GITHUB_SVG[] =
+    "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\">"
+    "<path fill=\"white\" d=\"M12 0C5.37 0 0 5.37 0 12c0 5.3 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577"
+    " 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61-.546-1.385-1.335-1.755-1.335-1.755"
+    "-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998"
+    ".108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22"
+    "-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006"
+    " 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23"
+    " 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896"
+    "-.015 3.286 0 .315.21.69.825.57C20.565 21.795 24 17.295 24 12c0-6.63-5.37-12-12-12z\"/>"
+    "</svg>";
+
+static GdkPixbuf *create_github_pixbuf(int size) {
+    GInputStream *stream = g_memory_input_stream_new_from_data(
+        GITHUB_SVG, (gssize)strlen(GITHUB_SVG), NULL);
+    GError *err = NULL;
+    GdkPixbuf *pb = gdk_pixbuf_new_from_stream_at_scale(
+        stream, size, size, TRUE, NULL, &err);
+    g_object_unref(stream);
+    if (err) {
+        g_error_free(err);
+        return NULL;
+    }
+    return pb;
+}
+
+static void on_github_clicked(GtkWidget *btn, gpointer data) {
+    (void)btn; (void)data;
+    gtk_show_uri_on_window(GTK_WINDOW(g_win),
+        "https://github.com/humrand/arch-installation-easy",
+        GDK_CURRENT_TIME, NULL);
 }
 
 
@@ -2801,7 +2887,7 @@ static gboolean on_window_key_press(GtkWidget *widget, GdkEventKey *event, gpoin
 
 static void build_ui(void) {
     g_win = gtk_window_new(GTK_WINDOW_TOPLEVEL);
-    gtk_window_set_title(GTK_WINDOW(g_win), "PKG Helper - Arch Linux");
+    gtk_window_set_title(GTK_WINDOW(g_win), "PKG Helper - PulseOS");
     gtk_window_set_default_size(GTK_WINDOW(g_win), 920, 580);
     gtk_window_set_position(GTK_WINDOW(g_win), GTK_WIN_POS_CENTER);
     g_signal_connect(g_win, "delete-event", G_CALLBACK(on_window_destroy), NULL);
@@ -3182,10 +3268,10 @@ static void build_ui(void) {
             GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
         g_object_unref(discord_css);
 
-        GtkWidget *btn_discord = gtk_button_new();
-        gtk_widget_set_name(btn_discord, "discord_btn");
-        gtk_widget_set_tooltip_text(btn_discord, "Join our Discord — discord.gg/esSm9wEcHQ");
-        g_signal_connect(btn_discord, "clicked", G_CALLBACK(on_discord_clicked), NULL);
+        g_btn_discord = gtk_button_new();
+        gtk_widget_set_name(g_btn_discord, "discord_btn");
+        gtk_widget_set_tooltip_text(g_btn_discord, "Join our Discord — discord.gg/esSm9wEcHQ");
+        g_signal_connect(g_btn_discord, "clicked", G_CALLBACK(on_discord_clicked), NULL);
 
         GtkWidget *discord_hbox = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 5);
         gtk_widget_set_valign(discord_hbox, GTK_ALIGN_CENTER);
@@ -3199,8 +3285,29 @@ static void build_ui(void) {
 
         GtkWidget *discord_lbl = gtk_label_new("Discord");
         gtk_box_pack_start(GTK_BOX(discord_hbox), discord_lbl, FALSE, FALSE, 0);
-        gtk_container_add(GTK_CONTAINER(btn_discord), discord_hbox);
-        gtk_box_pack_start(GTK_BOX(hbox_bot), btn_discord, FALSE, FALSE, 0);
+        gtk_container_add(GTK_CONTAINER(g_btn_discord), discord_hbox);
+        gtk_box_pack_start(GTK_BOX(hbox_bot), g_btn_discord, FALSE, FALSE, 0);
+    }
+
+    {
+        g_btn_github = gtk_button_new();
+        gtk_widget_set_tooltip_text(g_btn_github, "View on GitHub — github.com/humrand/arch-installation-easy");
+        g_signal_connect(g_btn_github, "clicked", G_CALLBACK(on_github_clicked), NULL);
+
+        GtkWidget *gh_hbox = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 5);
+        gtk_widget_set_valign(gh_hbox, GTK_ALIGN_CENTER);
+
+        GdkPixbuf *gh_pb = create_github_pixbuf(16);
+        if (gh_pb) {
+            GtkWidget *gh_img = gtk_image_new_from_pixbuf(gh_pb);
+            g_object_unref(gh_pb);
+            gtk_box_pack_start(GTK_BOX(gh_hbox), gh_img, FALSE, FALSE, 0);
+        }
+
+        GtkWidget *gh_lbl = gtk_label_new("GitHub");
+        gtk_box_pack_start(GTK_BOX(gh_hbox), gh_lbl, FALSE, FALSE, 0);
+        gtk_container_add(GTK_CONTAINER(g_btn_github), gh_hbox);
+        gtk_box_pack_start(GTK_BOX(hbox_bot), g_btn_github, FALSE, FALSE, 0);
     }
 
     g_btn_remove = gtk_button_new_with_label(T(STR_BTN_REMOVE));
@@ -3232,6 +3339,7 @@ int main(int argc, char *argv[]) {
     load_lang_pref();
     load_dark_pref();
     load_show_whats_new_pref();
+    load_hide_ads_pref();
     load_search_history();
 
     g_all_pkgs = g_array_new(FALSE, TRUE, sizeof(Pkg));
@@ -3247,6 +3355,8 @@ int main(int argc, char *argv[]) {
     }
 
     gtk_widget_show_all(g_win);
+
+    apply_hide_ads();
 
     on_installed_refresh(NULL, NULL);
 
