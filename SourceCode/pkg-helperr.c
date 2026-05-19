@@ -2287,8 +2287,9 @@ static void show_changelog_dialog(GtkWidget *parent, gboolean only_latest) {
 
         {
     
-            "v1.2.0-stable", "19 may 2026",
+            "v1.2.1-stable", "19 may 2026",
             "• Añadido un toggle para el GitHub y añadido la opcion de desactivarlo en opciones.\n",
+            
             "• Added a toggle for GitHub and added the option to disable it in options.\n"
 
 
