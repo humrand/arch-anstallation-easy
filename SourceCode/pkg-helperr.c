@@ -2286,6 +2286,12 @@ static void show_changelog_dialog(GtkWidget *parent, gboolean only_latest) {
     static const Entry entries[] = {
 
         {
+    
+            "v1.2.0-stable", "19 may 2026",
+            "• Añadido un toggle para el GitHub y añadido la opcion de desactivarlo en opciones.\n",
+            "• Added a toggle for GitHub and added the option to disable it in options.\n"
+
+
             "v1.2.0-stable", "7 may 2026",
             "• Búsquedas paralelas: pacman, AUR y Flatpak se lanzan a la vez (hasta 3× más rápido con las tres fuentes activas).\n"
             "• Carga de instalados 2×: una sola llamada pacman -Qi reemplaza el patrón anterior de dos subprocesos + tabla hash.\n"
