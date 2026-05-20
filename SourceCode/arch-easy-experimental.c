@@ -32,6 +32,10 @@
 #define MAX_LINES  2000
 #define KEEP_LINES 1000
 
+#define WALLPAPER_URL  "https://raw.githubusercontent.com/humrand/" \
+                       "arch-installation-easy/main/SourceCode/images/wallpaper.png"
+#define WALLPAPER_PATH "/usr/share/backgrounds/pulseos-wallpaper.png"
+
 #define PULSE_LOGO_LEN 197
 static const unsigned char PULSE_LOGO_DATA[PULSE_LOGO_LEN] = {
     0x0a, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x41, 0x41, 0x41, 0x0a,
@@ -2241,6 +2245,272 @@ static void ib_configure_grub_cmdline(IB *ib) {
     }
 }
 
+static void ib_write_chroot_file(const char *content, const char *dest_path) {
+    char q[MAX_CMD], full[MAX_CMD];
+    shell_quote(content, q, sizeof(q));
+    snprintf(full, sizeof(full),
+             "printf %%s %s | arch-chroot /mnt tee %s > /dev/null",
+             q, dest_path);
+    run_stream(full, NULL, NULL, 1);
+}
+
+static void ib_set_wallpaper(IB *ib)
+{
+    char cmd[MAX_CMD];
+
+    ib_stage(ib,
+        L("Setting default wallpaper...",
+          "Estableciendo fondo de pantalla predeterminado..."));
+
+    ib_chroot(ib,
+        "mkdir -p /usr/share/backgrounds && "
+        "curl -sL --max-time 60 "
+        "-o '" WALLPAPER_PATH "' "
+        "'" WALLPAPER_URL "'",
+        1);
+
+    int wp_ok = (ib_chroot(ib,
+        "test -s '" WALLPAPER_PATH "'",
+        1) == 0);
+
+    if (!wp_ok) {
+        write_log("Wallpaper download failed – skipping wallpaper setup.");
+        return;
+    }
+    write_log("Wallpaper downloaded to " WALLPAPER_PATH);
+
+    snprintf(cmd, sizeof(cmd),
+        "mkdir -p /home/%s/Pictures && "
+        "cp '" WALLPAPER_PATH "' '/home/%s/Pictures/pulseos-wallpaper.png' && "
+        "chown %s:%s '/home/%s/Pictures/pulseos-wallpaper.png'",
+        st.username, st.username,
+        st.username, st.username, st.username);
+    ib_chroot(ib, cmd, 1);
+
+    if (strstr(st.desktop_list, "GNOME")) {
+        ib_chroot(ib,
+            "mkdir -p /etc/dconf/profile /etc/dconf/db/local.d",
+            1);
+        ib_write_chroot_file(
+            "user-db:user\nsystem-db:local\n",
+            "/etc/dconf/profile/user");
+        ib_write_chroot_file(
+            "[org/gnome/desktop/background]\n"
+            "picture-uri='" "file://" WALLPAPER_PATH "'\n"
+            "picture-uri-dark='" "file://" WALLPAPER_PATH "'\n"
+            "picture-options='zoom'\n"
+            "color-shading-type='solid'\n"
+            "\n"
+            "[org/gnome/desktop/screensaver]\n"
+            "picture-uri='" "file://" WALLPAPER_PATH "'\n"
+            "picture-options='zoom'\n",
+            "/etc/dconf/db/local.d/00-pulseos-wallpaper");
+        ib_chroot(ib,
+            "command -v dconf > /dev/null 2>&1 && dconf update || true",
+            1);
+        write_log("GNOME: wallpaper applied via dconf system database.");
+    }
+
+    if (strstr(st.desktop_list, "Cinnamon")) {
+        ib_chroot(ib,
+            "mkdir -p /etc/dconf/profile /etc/dconf/db/local.d",
+            1);
+        ib_write_chroot_file(
+            "user-db:user\nsystem-db:local\n",
+            "/etc/dconf/profile/user");
+        ib_write_chroot_file(
+            "[org/cinnamon/desktop/background]\n"
+            "picture-uri='" "file://" WALLPAPER_PATH "'\n"
+            "picture-options='zoom'\n"
+            "color-shading-type='solid'\n",
+            "/etc/dconf/db/local.d/00-pulseos-wallpaper-cinnamon");
+        ib_chroot(ib,
+            "command -v dconf > /dev/null 2>&1 && dconf update || true",
+            1);
+        write_log("Cinnamon: wallpaper applied via dconf system database.");
+    }
+
+    if (strstr(st.desktop_list, "MATE")) {
+        ib_chroot(ib,
+            "mkdir -p /etc/dconf/profile /etc/dconf/db/local.d",
+            1);
+        ib_write_chroot_file(
+            "user-db:user\nsystem-db:local\n",
+            "/etc/dconf/profile/user");
+        ib_write_chroot_file(
+            "[org/mate/background]\n"
+            "picture-filename='" WALLPAPER_PATH "'\n"
+            "picture-options='zoom'\n"
+            "color-shading-type='solid'\n",
+            "/etc/dconf/db/local.d/00-pulseos-wallpaper-mate");
+        ib_chroot(ib,
+            "command -v dconf > /dev/null 2>&1 && dconf update || true",
+            1);
+        write_log("MATE: wallpaper applied via dconf system database.");
+    }
+
+    if (strstr(st.desktop_list, "KDE Plasma")) {
+        ib_chroot(ib,
+            "mkdir -p /usr/local/bin",
+            1);
+        ib_write_chroot_file(
+            "#!/bin/bash\n"
+            "# PulseOS – set default KDE wallpaper on first login\n"
+            "SENTINEL=\"$HOME/.config/.pulseos-kde-wallpaper-done\"\n"
+            "[ -f \"$SENTINEL\" ] && exit 0\n"
+            "plasma-apply-wallpaperimage '" WALLPAPER_PATH "' 2>/dev/null\n"
+            "touch \"$SENTINEL\"\n"
+            "# Remove this autostart entry after first run\n"
+            "rm -f \"$HOME/.config/autostart/pulseos-kde-wallpaper.desktop\"\n",
+            "/usr/local/bin/pulseos-kde-wallpaper.sh");
+        ib_chroot(ib,
+            "chmod +x /usr/local/bin/pulseos-kde-wallpaper.sh",
+            1);
+
+        snprintf(cmd, sizeof(cmd),
+            "mkdir -p /home/%s/.config/autostart", st.username);
+        ib_chroot(ib, cmd, 1);
+        ib_write_chroot_file(
+            "[Desktop Entry]\n"
+            "Name=PulseOS KDE Wallpaper\n"
+            "Comment=Set PulseOS default wallpaper on first login\n"
+            "Exec=/usr/local/bin/pulseos-kde-wallpaper.sh\n"
+            "Terminal=false\n"
+            "Type=Application\n"
+            "X-KDE-autostart-condition="
+            "pulseos-wallpaper:general:done:false\n",
+            "/etc/xdg/autostart/pulseos-kde-wallpaper.desktop");
+
+        ib_chroot(ib,
+            "mkdir -p /etc/skel/.config/autostart && "
+            "cp /etc/xdg/autostart/pulseos-kde-wallpaper.desktop "
+            "   /etc/skel/.config/autostart/",
+            1);
+        snprintf(cmd, sizeof(cmd),
+            "cp /etc/xdg/autostart/pulseos-kde-wallpaper.desktop "
+            "/home/%s/.config/autostart/ && "
+            "chown %s:%s /home/%s/.config/autostart/"
+            "pulseos-kde-wallpaper.desktop",
+            st.username, st.username, st.username, st.username);
+        ib_chroot(ib, cmd, 1);
+        write_log("KDE Plasma: wallpaper autostart script installed.");
+    }
+
+    if (strstr(st.desktop_list, "XFCE")) {
+        const char *xfce_xml =
+            "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
+            "<channel name=\"xfce4-desktop\" version=\"1.0\">\n"
+            "  <property name=\"backdrop\" type=\"empty\">\n"
+            "    <property name=\"screen0\" type=\"empty\">\n"
+            "      <property name=\"monitor0\" type=\"empty\">\n"
+            "        <property name=\"workspace0\" type=\"empty\">\n"
+            "          <property name=\"last-image\""
+            " type=\"string\" value=\"" WALLPAPER_PATH "\"/>\n"
+            "          <property name=\"image-style\""
+            " type=\"int\" value=\"5\"/>\n"
+            "        </property>\n"
+            "      </property>\n"
+            "    </property>\n"
+            "  </property>\n"
+            "</channel>\n";
+
+        ib_chroot(ib,
+            "mkdir -p /etc/skel/.config/xfce4/xfconf/xfce-perchannel-xml",
+            1);
+        ib_write_chroot_file(xfce_xml,
+            "/etc/skel/.config/xfce4/xfconf/xfce-perchannel-xml/"
+            "xfce4-desktop.xml");
+
+        snprintf(cmd, sizeof(cmd),
+            "mkdir -p /home/%s/.config/xfce4/xfconf/xfce-perchannel-xml && "
+            "cp /etc/skel/.config/xfce4/xfconf/xfce-perchannel-xml/"
+            "xfce4-desktop.xml "
+            "/home/%s/.config/xfce4/xfconf/xfce-perchannel-xml/"
+            "xfce4-desktop.xml && "
+            "chown -R %s:%s /home/%s/.config/xfce4",
+            st.username, st.username,
+            st.username, st.username, st.username);
+        ib_chroot(ib, cmd, 1);
+        write_log("XFCE: wallpaper written to xfce4-desktop.xml.");
+    }
+
+    if (strstr(st.desktop_list, "LXQt")) {
+        const char *lxqt_conf =
+            "[Desktop]\n"
+            "Wallpaper=" WALLPAPER_PATH "\n"
+            "WallpaperMode=zoom\n";
+
+        ib_chroot(ib,
+            "mkdir -p /etc/skel/.config/pcmanfm-qt/lxqt",
+            1);
+        ib_write_chroot_file(lxqt_conf,
+            "/etc/skel/.config/pcmanfm-qt/lxqt/desktop-items-0.conf");
+
+        snprintf(cmd, sizeof(cmd),
+            "mkdir -p /home/%s/.config/pcmanfm-qt/lxqt && "
+            "cp /etc/skel/.config/pcmanfm-qt/lxqt/desktop-items-0.conf "
+            "/home/%s/.config/pcmanfm-qt/lxqt/desktop-items-0.conf && "
+            "chown -R %s:%s /home/%s/.config/pcmanfm-qt",
+            st.username, st.username,
+            st.username, st.username, st.username);
+        ib_chroot(ib, cmd, 1);
+        write_log("LXQt: wallpaper written to pcmanfm-qt config.");
+    }
+
+    if (strstr(st.desktop_list, "Hyprland")) {
+        ib_chroot(ib,
+            "pacman -S --noconfirm --needed hyprpaper 2>/dev/null || true",
+            1);
+
+        snprintf(cmd, sizeof(cmd),
+            "mkdir -p /home/%s/.config/hypr", st.username);
+        ib_chroot(ib, cmd, 1);
+
+        char hypr_conf[512];
+        snprintf(hypr_conf, sizeof(hypr_conf),
+            "preload = " WALLPAPER_PATH "\n"
+            "wallpaper = ," WALLPAPER_PATH "\n"
+            "splash = false\n");
+        {
+            char dest[128];
+            snprintf(dest, sizeof(dest),
+                "/home/%s/.config/hypr/hyprpaper.conf", st.username);
+            ib_write_chroot_file(hypr_conf, dest);
+        }
+
+        snprintf(cmd, sizeof(cmd),
+            "CFG=/home/%s/.config/hypr/hyprland.conf; "
+            "grep -q 'exec-once.*hyprpaper' \"$CFG\" 2>/dev/null || "
+            "printf '\\nexec-once = hyprpaper\\n' >> \"$CFG\" 2>/dev/null || true",
+            st.username);
+        ib_chroot(ib, cmd, 1);
+
+        snprintf(cmd, sizeof(cmd),
+            "chown -R %s:%s /home/%s/.config/hypr",
+            st.username, st.username, st.username);
+        ib_chroot(ib, cmd, 1);
+        write_log("Hyprland: hyprpaper configured with default wallpaper.");
+    }
+
+    if (strstr(st.desktop_list, "Sway")) {
+        snprintf(cmd, sizeof(cmd),
+            "mkdir -p /home/%s/.config/sway; "
+            "CFG=/home/%s/.config/sway/config; "
+            "grep -q 'output.*background' \"$CFG\" 2>/dev/null || "
+            "printf '\\noutput * background " WALLPAPER_PATH " fill\\n'"
+            " >> \"$CFG\" 2>/dev/null || "
+            "printf '\\noutput * background " WALLPAPER_PATH " fill\\n'"
+            " >> /etc/sway/config 2>/dev/null || true; "
+            "chown -R %s:%s /home/%s/.config/sway 2>/dev/null || true",
+            st.username, st.username,
+            st.username, st.username, st.username);
+        ib_chroot(ib, cmd, 1);
+        write_log("Sway: wallpaper output line added to sway config.");
+    }
+
+    write_log("Default wallpaper setup complete.");
+}
+
 typedef struct {
     IB *ib;
 } IBRunArg;
@@ -3111,6 +3381,8 @@ static void *ib_run_thread(void *arg) {
 
         write_log("PulseOS branding applied successfully.");
     }
+
+    ib_set_wallpaper(ib);
 
     pthread_mutex_lock(&ib->lock);
     int had_error = ib->had_error;
