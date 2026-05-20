@@ -32,9 +32,10 @@
 #define MAX_LINES  2000
 #define KEEP_LINES 1000
 
-#define WALLPAPER_URL  "https://raw.githubusercontent.com/humrand/" \
-                       "arch-installation-easy/main/SourceCode/images/wallpaper.png"
-#define WALLPAPER_PATH "/usr/share/backgrounds/pulseos-wallpaper.png"
+#define WALLPAPER_URL      "https://raw.githubusercontent.com/humrand/" \
+                           "arch-installation-easy/main/SourceCode/images/wallpaper.png"
+#define WALLPAPER_KDE_DIR  "/usr/share/wallpapers/PulseOS"
+#define WALLPAPER_PATH     WALLPAPER_KDE_DIR "/contents/images/wallpaper.png"
 
 #define PULSE_LOGO_LEN 197
 static const unsigned char PULSE_LOGO_DATA[PULSE_LOGO_LEN] = {
@@ -2263,7 +2264,24 @@ static void ib_set_wallpaper(IB *ib)
           "Estableciendo fondo de pantalla predeterminado..."));
 
     ib_chroot(ib,
-        "mkdir -p /usr/share/backgrounds && "
+        "mkdir -p '" WALLPAPER_KDE_DIR "/contents/images'",
+        1);
+
+    ib_write_chroot_file(
+        "{\n"
+        "    \"KPackageStructure\": \"Wallpaper/Images\",\n"
+        "    \"KPlugin\": {\n"
+        "        \"Authors\": [{\"Email\": \"\", \"Name\": \"PulseOS\"}],\n"
+        "        \"Description\": \"PulseOS default wallpaper\",\n"
+        "        \"Id\": \"PulseOS\",\n"
+        "        \"License\": \"CC-BY-SA\",\n"
+        "        \"Name\": \"PulseOS\",\n"
+        "        \"Version\": \"1.0\"\n"
+        "    }\n"
+        "}\n",
+        WALLPAPER_KDE_DIR "/metadata.json");
+
+    ib_chroot(ib,
         "curl -sL --max-time 60 "
         "-o '" WALLPAPER_PATH "' "
         "'" WALLPAPER_URL "'",
@@ -2278,6 +2296,18 @@ static void ib_set_wallpaper(IB *ib)
         return;
     }
     write_log("Wallpaper downloaded to " WALLPAPER_PATH);
+
+    ib_chroot(ib,
+        "ln -sf '" WALLPAPER_PATH "' "
+        "'" WALLPAPER_KDE_DIR "/contents/screenshot.png' 2>/dev/null || true",
+        1);
+
+    ib_chroot(ib,
+        "mkdir -p /usr/share/backgrounds && "
+        "ln -sf '" WALLPAPER_PATH "' "
+        "/usr/share/backgrounds/pulseos-wallpaper.png 2>/dev/null || "
+        "cp '" WALLPAPER_PATH "' /usr/share/backgrounds/pulseos-wallpaper.png",
+        1);
 
     snprintf(cmd, sizeof(cmd),
         "mkdir -p /home/%s/Pictures && "
@@ -2350,26 +2380,77 @@ static void ib_set_wallpaper(IB *ib)
     }
 
     if (strstr(st.desktop_list, "KDE Plasma")) {
-        ib_chroot(ib,
-            "mkdir -p /usr/local/bin",
-            1);
+
+        snprintf(cmd, sizeof(cmd),
+            "mkdir -p /home/%s/.config", st.username);
+        ib_chroot(ib, cmd, 1);
+
+        ib_write_chroot_file(
+            "[Containments][1][Wallpaper][org.kde.image][General]\n"
+            "Image=file://" WALLPAPER_PATH "\n"
+            "\n"
+            "[Containments][2][Wallpaper][org.kde.image][General]\n"
+            "Image=file://" WALLPAPER_PATH "\n",
+            "/etc/skel/.config/plasma-org.kde.plasma.desktop-appletsrc");
+
+        {
+            char dest[256];
+            snprintf(dest, sizeof(dest),
+                "/home/%s/.config/plasma-org.kde.plasma.desktop-appletsrc",
+                st.username);
+            snprintf(cmd, sizeof(cmd),
+                "[ -f '%s' ] || "
+                "cp /etc/skel/.config/"
+                "plasma-org.kde.plasma.desktop-appletsrc '%s'",
+                dest, dest);
+            ib_chroot(ib, cmd, 1);
+            snprintf(cmd, sizeof(cmd),
+                "chown %s:%s '/home/%s/.config/"
+                "plasma-org.kde.plasma.desktop-appletsrc'",
+                st.username, st.username, st.username);
+            ib_chroot(ib, cmd, 1);
+        }
+
+        ib_chroot(ib, "mkdir -p /usr/local/bin", 1);
+
         ib_write_chroot_file(
             "#!/bin/bash\n"
-            "# PulseOS – set default KDE wallpaper on first login\n"
+            "# PulseOS – apply default KDE Plasma wallpaper on first login\n"
             "SENTINEL=\"$HOME/.config/.pulseos-kde-wallpaper-done\"\n"
             "[ -f \"$SENTINEL\" ] && exit 0\n"
-            "plasma-apply-wallpaperimage '" WALLPAPER_PATH "' 2>/dev/null\n"
+            "\n"
+            "WP_PATH='" WALLPAPER_PATH "'\n"
+            "WP_URI=\"file://${WP_PATH}\"\n"
+            "\n"
+            "# Method b: plasma-apply-wallpaperimage (KDE Plasma 5.19+)\n"
+            "if command -v plasma-apply-wallpaperimage > /dev/null 2>&1; then\n"
+            "    plasma-apply-wallpaperimage \"$WP_PATH\" 2>/dev/null\n"
+            "fi\n"
+            "\n"
+            "# Method c: PlasmaShell D-Bus evaluateScript (Plasma 5 and 6)\n"
+            "JS=\"var ds=desktops();"
+                "for(var i=0;i<ds.length;i++){"
+                  "var d=ds[i];"
+                  "d.wallpaperPlugin='org.kde.image';"
+                  "d.currentConfigGroup=['Wallpaper','org.kde.image','General'];"
+                  "d.writeConfig('Image','${WP_URI}');"
+                "}\"\n"
+            "if command -v qdbus6 > /dev/null 2>&1; then\n"
+            "    qdbus6 org.kde.plasmashell /PlasmaShell \\\n"
+            "        org.kde.PlasmaShell.evaluateScript \"$JS\" 2>/dev/null\n"
+            "elif command -v qdbus > /dev/null 2>&1; then\n"
+            "    qdbus org.kde.plasmashell /PlasmaShell \\\n"
+            "        org.kde.PlasmaShell.evaluateScript \"$JS\" 2>/dev/null\n"
+            "fi\n"
+            "\n"
             "touch \"$SENTINEL\"\n"
-            "# Remove this autostart entry after first run\n"
             "rm -f \"$HOME/.config/autostart/pulseos-kde-wallpaper.desktop\"\n",
             "/usr/local/bin/pulseos-kde-wallpaper.sh");
+
         ib_chroot(ib,
             "chmod +x /usr/local/bin/pulseos-kde-wallpaper.sh",
             1);
 
-        snprintf(cmd, sizeof(cmd),
-            "mkdir -p /home/%s/.config/autostart", st.username);
-        ib_chroot(ib, cmd, 1);
         ib_write_chroot_file(
             "[Desktop Entry]\n"
             "Name=PulseOS KDE Wallpaper\n"
@@ -2377,6 +2458,7 @@ static void ib_set_wallpaper(IB *ib)
             "Exec=/usr/local/bin/pulseos-kde-wallpaper.sh\n"
             "Terminal=false\n"
             "Type=Application\n"
+            "X-KDE-autostart-phase=2\n"
             "X-KDE-autostart-condition="
             "pulseos-wallpaper:general:done:false\n",
             "/etc/xdg/autostart/pulseos-kde-wallpaper.desktop");
@@ -2386,14 +2468,19 @@ static void ib_set_wallpaper(IB *ib)
             "cp /etc/xdg/autostart/pulseos-kde-wallpaper.desktop "
             "   /etc/skel/.config/autostart/",
             1);
+
         snprintf(cmd, sizeof(cmd),
+            "mkdir -p /home/%s/.config/autostart && "
             "cp /etc/xdg/autostart/pulseos-kde-wallpaper.desktop "
-            "/home/%s/.config/autostart/ && "
+            "   /home/%s/.config/autostart/ && "
             "chown %s:%s /home/%s/.config/autostart/"
             "pulseos-kde-wallpaper.desktop",
-            st.username, st.username, st.username, st.username);
+            st.username, st.username,
+            st.username, st.username, st.username);
         ib_chroot(ib, cmd, 1);
-        write_log("KDE Plasma: wallpaper autostart script installed.");
+
+        write_log("KDE Plasma: wallpaper package + pre-seeded config + "
+                  "autostart (plasma-apply + qdbus) installed.");
     }
 
     if (strstr(st.desktop_list, "XFCE")) {
