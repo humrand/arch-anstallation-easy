@@ -22,7 +22,7 @@
 
 #include <gtk/gtk.h>
 
-#define VERSION   "V3.0.0"
+#define VERSION   "V4.0.0"
 #define LOG_FILE  "/tmp/arch_install.log"
 #define TITLE     "PulseOS Installer"
 
